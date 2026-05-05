@@ -33,17 +33,22 @@ install_system_deps() {
 	awk -v mirror="$apt_mirror" '
 	  /^  cat "\/etc\/apt\/sources\.list" > "\$APT_SOURCES"/ {
 	    printf "  sed -e \"s|archive.ubuntu.com|%s|g\" -e \"s|security.ubuntu.com|%s|g\" /etc/apt/sources.list > \"$APT_SOURCES\"\n", mirror, mirror
+	    matched_cat = 1
 	    next
 	  }
 	  /^  cp -R "\/etc\/apt\/sources\.list\.d" "\$APT_SOURCEPARTS_DIR"/ {
 	    print
 	    printf "  find \"$APT_SOURCEPARTS_DIR\" -type f -exec sed -i \"s|archive.ubuntu.com|%s|g; s|security.ubuntu.com|%s|g\" {} +\n", mirror, mirror
+	    matched_cp = 1
 	    next
 	  }
 	  { print }
-	' $buildpack_tmpdir/bin/compile > $buildpack_tmpdir/bin/compile.new
+	  END { if (!matched_cat || !matched_cp) exit 1 }
+	' $buildpack_tmpdir/bin/compile > $buildpack_tmpdir/bin/compile.new \
+		|| error "Failed to patch apt buildpack sources for AWS mirror — heroku-buildpack-apt may have changed shape. Update bin/compile in heroku-playwright-buildpack to match."
 	mv $buildpack_tmpdir/bin/compile.new $buildpack_tmpdir/bin/compile
 	chmod +x $buildpack_tmpdir/bin/compile
+	echo "       Rewrote apt sources to use $apt_mirror"
 
 	local build_tmpdir=$(mktemp -d)
 	mkdir -p $build_tmpdir
