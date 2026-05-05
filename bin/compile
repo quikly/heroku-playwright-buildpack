@@ -24,14 +24,26 @@ install_system_deps() {
 	cd $buildpack_tmpdir && git clone $APT_BUILDPACK .
 
 	# Heroku builds run in AWS us-east-1; archive.ubuntu.com has been
-	# intermittently slow/unreachable, so rewrite the cloned apt buildpack
-	# to use the regional AWS-hosted Ubuntu mirror. Override via
-	# PLAYWRIGHT_BUILDPACK_APT_MIRROR if needed.
+	# intermittently slow/unreachable. Patch the cloned apt buildpack so the
+	# sources it copies into its cache (sources.list AND sources.list.d/*,
+	# including the deb822 ubuntu.sources used on heroku-24) are rewritten
+	# to the regional AWS-hosted Ubuntu mirror before apt-get update runs.
+	# Override via PLAYWRIGHT_BUILDPACK_APT_MIRROR.
 	local apt_mirror="${PLAYWRIGHT_BUILDPACK_APT_MIRROR:-us-east-1.ec2.archive.ubuntu.com}"
-	sed -i.bak \
-		-e "s|archive\.ubuntu\.com|${apt_mirror}|g" \
-		-e "s|security\.ubuntu\.com|${apt_mirror}|g" \
-		$buildpack_tmpdir/bin/compile
+	awk -v mirror="$apt_mirror" '
+	  /^  cat "\/etc\/apt\/sources\.list" > "\$APT_SOURCES"/ {
+	    printf "  sed -e \"s|archive.ubuntu.com|%s|g\" -e \"s|security.ubuntu.com|%s|g\" /etc/apt/sources.list > \"$APT_SOURCES\"\n", mirror, mirror
+	    next
+	  }
+	  /^  cp -R "\/etc\/apt\/sources\.list\.d" "\$APT_SOURCEPARTS_DIR"/ {
+	    print
+	    printf "  find \"$APT_SOURCEPARTS_DIR\" -type f -exec sed -i \"s|archive.ubuntu.com|%s|g; s|security.ubuntu.com|%s|g\" {} +\n", mirror, mirror
+	    next
+	  }
+	  { print }
+	' $buildpack_tmpdir/bin/compile > $buildpack_tmpdir/bin/compile.new
+	mv $buildpack_tmpdir/bin/compile.new $buildpack_tmpdir/bin/compile
+	chmod +x $buildpack_tmpdir/bin/compile
 
 	local build_tmpdir=$(mktemp -d)
 	mkdir -p $build_tmpdir
