@@ -23,6 +23,16 @@ install_system_deps() {
 	local buildpack_tmpdir=$(mktemp -d)
 	cd $buildpack_tmpdir && git clone $APT_BUILDPACK .
 
+	# Heroku builds run in AWS us-east-1; archive.ubuntu.com has been
+	# intermittently slow/unreachable, so rewrite the cloned apt buildpack
+	# to use the regional AWS-hosted Ubuntu mirror. Override via
+	# PLAYWRIGHT_BUILDPACK_APT_MIRROR if needed.
+	local apt_mirror="${PLAYWRIGHT_BUILDPACK_APT_MIRROR:-us-east-1.ec2.archive.ubuntu.com}"
+	sed -i.bak \
+		-e "s|archive\.ubuntu\.com|${apt_mirror}|g" \
+		-e "s|security\.ubuntu\.com|${apt_mirror}|g" \
+		$buildpack_tmpdir/bin/compile
+
 	local build_tmpdir=$(mktemp -d)
 	mkdir -p $build_tmpdir
 
